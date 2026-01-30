@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>ログをあれするやつ</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: sans-serif;
+        }
+
+        #menu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #2222229c;
+            color: #fff;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        #menu input[type="text"] {
+            padding: 4px;
+        }
+
+        #logArea {
+            margin-top: 70px;
+            padding: 10px;
+        }
+
+        .log-line {
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        .start {
+            background-color: rgba(255, 0, 0, 0.3);
+        }
+
+        .end {
+            background-color: rgba(0, 0, 255, 0.3);
+        }
+
+        #scrollBar {
+            position: fixed;
+            top: 70px;
+            right: 8px;
+            width: 30px;
+            height: calc(100vh - 80px);
+            background: #e0e0e0;
+            border-radius: 8px;
+        }
+
+        #viewPort {
+            position: absolute;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.18);
+            border-radius: 8px;
+        }
+
+        #startMarker,
+        #endMarker {
+            position: absolute;
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+        }
+
+        #startMarker {
+            background: rgba(255, 0, 0, 0.3);
+        }
+
+        #endMarker {
+            background: rgba(0, 0, 255, 0.3);
+        }
+
+        #scrollBar {
+            cursor: pointer;
+        }
+
+        .right {
+            margin-left: auto;
+            margin-right: 2em;
+        }
+
+        #helpOverlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        #helpModal {
+            background: #fff;
+            color: #000;
+            padding: 20px 24px;
+            width: 420px;
+            max-width: 90%;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(54, 54, 54, 0.3);
+        }
+
+        #helpModal button {
+            margin-top: 16px;
+            padding: 6px 12px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="menu">
+        <input type="file" id="fileInput" accept=".html">
+        <input type="text" id="fileName" placeholder="出力するファイル名">
+        <button id="exportBtn">切り取り</button>
+        <div class="right">
+            <button id="resetBtn">選択リセット</button>
+            <button id="helpBtn">ヘルプ</button>
+        </div>
+    </div>
+
+    <div id="logArea"></div>
+
+    <div id="scrollBar">
+        <div id="viewPort"></div>
+        <div id="startMarker"></div>
+        <div id="endMarker"></div>
+
+        <div id="helpOverlay">
+            <div id="helpModal">
+                <h3>操作説明</h3>
+
+                <ul>
+                    <li>ログ行をクリックすると選択できます</li>
+                    <li style="list-style:none;"><span style="color:rgba(255, 0, 0, 0.6);">└ 赤：切り取り開始行</span></li>
+                    <li style="list-style:none;"><span style="color:rgba(0, 0, 255, 0.6);">└
+                            青：切り取り終了行</span></li>
+                    <li style="list-style:none;"><span style="color:rgba(0, 0, 0, 0.3);">※逆でもとりあえず大丈夫です
+                        </span></li>
+                    <li>同じ行をもう一度クリックすると解除されます</li>
+                    <li>選択できたら出力するファイル名を入力して切り取りボタンを押してください</li>
+                    <li>右側のバーをクリックするとその位置にジャンプします</li>
+                    <li>困ったら選択リセットボタンを押すか画面を更新してください</li>
+                </ul>
+
+                <button id="closeHelp">閉じる</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let startLine = null;
+        let endLine = null;
+
+        document.getElementById("fileInput").addEventListener("change", e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = () => loadLog(reader.result);
+            reader.readAsText(file);
+        });
+
+        function loadLog(html) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+            const lines = doc.querySelectorAll("p");
+
+            const logArea = document.getElementById("logArea");
+            logArea.innerHTML = "";
+
+            lines.forEach((p, index) => {
+                const div = document.createElement("div");
+                div.className = "log-line";
+                div.innerHTML = p.outerHTML;
+                div.dataset.index = index;
+
+                div.addEventListener("click", () => handleClick(div));
+                logArea.appendChild(div);
+            });
+            updateMarkers();
+            updateScrollBar();
+        }
+
+        function handleClick(line) {
+
+            if (line === startLine) {
+                startLine.classList.remove("start");
+                startLine = null;
+                updateMarkers();
+                return;
+            }
+
+            if (line === endLine) {
+                endLine.classList.remove("end");
+                endLine = null;
+                updateMarkers();
+                return;
+            }
+
+            if (!startLine) {
+                startLine = line;
+                line.classList.add("start");
+                updateMarkers();
+                return;
+            }
+
+            if (!endLine) {
+                endLine = line;
+                line.classList.add("end");
+                updateMarkers();
+                return;
+            }
+        }
+
+        document.getElementById("exportBtn").addEventListener("click", () => {
+            if (!startLine || !endLine) {
+                alert("開始行と終了行を選択してください");
+                return;
+            }
+
+            const start = Number(startLine.dataset.index);
+            const end = Number(endLine.dataset.index);
+            const [from, to] = start < end ? [start, end] : [end, start];
+
+            const selected = [...document.querySelectorAll(".log-line")]
+                .slice(from, to + 1)
+                .map(div => div.innerHTML)
+                .join("\n");
+
+            const html = `<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="UTF-8"></head>
+<body>
+${selected}
+</body>
+</html>`;
+
+            const blob = new Blob([html], {
+                type: "text/html"
+            });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = document.getElementById("fileName").value || "切り取りログ.html";
+            a.click();
+        });
+
+        const scrollBar = document.getElementById("scrollBar");
+        const viewPort = document.getElementById("viewPort");
+        const startMarker = document.getElementById("startMarker");
+        const endMarker = document.getElementById("endMarker");
+
+        window.addEventListener("scroll", updateScrollBar);
+
+        function updateScrollBar() {
+            const docHeight = document.body.scrollHeight;
+            const viewHeight = window.innerHeight;
+            const scrollTop = window.scrollY;
+            const barHeight = scrollBar.clientHeight;
+            const viewRatio = viewHeight / docHeight;
+            const topRatio = scrollTop / docHeight;
+
+            viewPort.style.height = `${barHeight * viewRatio}px`;
+            viewPort.style.top = `${barHeight * topRatio}px`;
+        }
+
+
+        function updateMarkers() {
+            const lines = document.querySelectorAll(".log-line");
+            const total = lines.length;
+            if (total === 0) return;
+
+            const barHeight = scrollBar.clientHeight;
+
+            if (startLine) {
+                const i = Number(startLine.dataset.index);
+                startMarker.style.top = `${(i / total) * barHeight}px`;
+                startMarker.style.display = "block";
+            } else {
+                startMarker.style.display = "none";
+            }
+
+            if (endLine) {
+                const i = Number(endLine.dataset.index);
+                endMarker.style.top = `${(i / total) * barHeight}px`;
+                endMarker.style.display = "block";
+            } else {
+                endMarker.style.display = "none";
+            }
+        }
+
+        scrollBar.addEventListener("click", e => {
+            const rect = scrollBar.getBoundingClientRect();
+            const clickY = e.clientY - rect.top;
+            const ratio = clickY / rect.height;
+            const maxScroll = document.body.scrollHeight - window.innerHeight;
+            const targetScroll = maxScroll * ratio;
+
+            window.scrollTo({
+                top: targetScroll,
+                behavior: "smooth"
+            });
+        });
+
+        function resetSelection() {
+            if (startLine) {
+                startLine.classList.remove("start");
+                startLine = null;
+            }
+
+            if (endLine) {
+                endLine.classList.remove("end");
+                endLine = null;
+            }
+
+            updateMarkers();
+        }
+
+        document.getElementById("resetBtn")
+            .addEventListener("click", resetSelection);
+
+        const helpOverlay = document.getElementById("helpOverlay");
+        const helpBtn = document.getElementById("helpBtn");
+        const closeHelp = document.getElementById("closeHelp");
+
+        helpBtn.addEventListener("click", () => {
+            helpOverlay.style.display = "flex";
+        });
+
+        closeHelp.addEventListener("click", () => {
+            helpOverlay.style.display = "none";
+        });
+
+        helpOverlay.addEventListener("click", e => {
+            if (e.target === helpOverlay) {
+                helpOverlay.style.display = "none";
+            }
+        });
+    </script>
+
+</body>
+
+</html>
