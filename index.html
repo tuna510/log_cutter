@@ -39,14 +39,6 @@
             padding: 4px;
         }
 
-        .start {
-            background-color: rgba(255, 0, 0, 0.3);
-        }
-
-        .end {
-            background-color: rgba(0, 0, 255, 0.3);
-        }
-
         #scrollBar {
             position: fixed;
             top: 70px;
@@ -62,22 +54,7 @@
             width: 100%;
             background: rgba(0, 0, 0, 0.18);
             border-radius: 8px;
-        }
-
-        #startMarker,
-        #endMarker {
-            position: absolute;
-            width: 100%;
-            height: 8px;
-            border-radius: 4px;
-        }
-
-        #startMarker {
-            background: rgba(255, 0, 0, 0.3);
-        }
-
-        #endMarker {
-            background: rgba(0, 0, 255, 0.3);
+            z-index: 100;
         }
 
         #scrollBar {
@@ -114,6 +91,54 @@
             padding: 6px 12px;
             cursor: pointer;
         }
+
+        .range-edge {
+            background-color: rgba(255, 0, 0, 0.3);
+        }
+
+        .range-middle {
+            background-color: rgba(255, 0, 0, 0.3);
+        }
+
+        #startMarker,
+        #endMarker {
+            position: absolute;
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+        }
+
+        #startMarker {
+            background: rgb(224, 120, 120);
+            z-index: 80;
+        }
+
+        #endMarker {
+            background: rgb(224, 120, 120);
+            z-index: 80;
+        }
+
+        #rangeBar {
+            position: absolute;
+            width: 100%;
+            background: rgb(240, 186, 186);
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        #logArea.drag-over {
+            outline: 3px dashed rgba(255, 0, 0, 0.5);
+            background: rgba(255, 0, 0, 0.05);
+        }
+
+        #emptyMessage {
+            color: #666;
+            text-align: center;
+            margin: 150px 0;
+            font-size: 16px;
+            line-height: 1.8;
+            pointer-events: none;
+        }
     </style>
 </head>
 
@@ -128,13 +153,11 @@
             <button id="helpBtn">ヘルプ</button>
         </div>
     </div>
-
-    <div id="logArea"></div>
-
     <div id="scrollBar">
         <div id="viewPort"></div>
         <div id="startMarker"></div>
         <div id="endMarker"></div>
+        <div id="rangeBar"></div>
 
         <div id="helpOverlay">
             <div id="helpModal">
@@ -142,22 +165,24 @@
 
                 <ul>
                     <li>ログ行をクリックすると選択できます</li>
-                    <li style="list-style:none;"><span style="color:rgba(255, 0, 0, 0.6);">└ 赤：切り取り開始行</span></li>
-                    <li style="list-style:none;"><span style="color:rgba(0, 0, 255, 0.6);">└
-                            青：切り取り終了行</span></li>
-                    <li style="list-style:none;"><span style="color:rgba(0, 0, 0, 0.3);">※逆でもとりあえず大丈夫です
-                        </span></li>
                     <li>同じ行をもう一度クリックすると解除されます</li>
-                    <li>選択できたら出力するファイル名を入力して切り取りボタンを押してください</li>
+                    <li>始めと終わりを選択できたら出力するファイル名を入力して切り取りボタンを押してください</li>
                     <li>右側のバーをクリックするとその位置にジャンプします</li>
                     <li>困ったら選択リセットボタンを押すか画面を更新してください</li>
-                    <li>※簡易的な物なのでスマホ非対応です</li>
+                    <br>
+                    <li style="list-style:none;">※簡易的な物なのでスマホ非対応です</li>
                 </ul>
 
                 <button id="closeHelp">閉じる</button>
             </div>
         </div>
 
+    </div>
+    <div id="logArea">
+        <div id="emptyMessage">
+            ログをドラッグ＆ドロップするか<br>
+            左上のファイル選択からアップロードしてください
+        </div>
     </div>
 
     <script>
@@ -174,11 +199,14 @@
         });
 
         function loadLog(html) {
+            const logArea = document.getElementById("logArea");
+            const empty = document.getElementById("emptyMessage");
+            if (empty) empty.remove();
+
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, "text/html");
             const lines = doc.querySelectorAll("p");
 
-            const logArea = document.getElementById("logArea");
             logArea.innerHTML = "";
 
             lines.forEach((p, index) => {
@@ -190,40 +218,41 @@
                 div.addEventListener("click", () => handleClick(div));
                 logArea.appendChild(div);
             });
+
             updateMarkers();
             updateScrollBar();
         }
 
+
         function handleClick(line) {
 
             if (line === startLine) {
-                startLine.classList.remove("start");
                 startLine = null;
+                updateRangeHighlight();
                 updateMarkers();
+                updateRangeBar();
                 return;
             }
 
             if (line === endLine) {
-                endLine.classList.remove("end");
                 endLine = null;
+                updateRangeHighlight();
                 updateMarkers();
+                updateRangeBar();
                 return;
             }
 
             if (!startLine) {
                 startLine = line;
-                line.classList.add("start");
-                updateMarkers();
-                return;
+            } else if (!endLine) {
+                endLine = line;
             }
 
-            if (!endLine) {
-                endLine = line;
-                line.classList.add("end");
-                updateMarkers();
-                return;
-            }
+            updateRangeHighlight();
+            updateMarkers();
+            updateRangeBar();
         }
+
 
         document.getElementById("exportBtn").addEventListener("click", () => {
             if (!startLine || !endLine) {
@@ -315,18 +344,14 @@ ${selected}
         });
 
         function resetSelection() {
-            if (startLine) {
-                startLine.classList.remove("start");
-                startLine = null;
-            }
+            startLine = null;
+            endLine = null;
 
-            if (endLine) {
-                endLine.classList.remove("end");
-                endLine = null;
-            }
-
+            updateRangeHighlight();
             updateMarkers();
+            updateRangeBar();
         }
+
 
         document.getElementById("resetBtn")
             .addEventListener("click", resetSelection);
@@ -347,6 +372,96 @@ ${selected}
             if (e.target === helpOverlay) {
                 helpOverlay.style.display = "none";
             }
+        });
+
+        function updateRangeHighlight() {
+            const lines = document.querySelectorAll(".log-line");
+            lines.forEach(line => {
+                line.classList.remove("range-edge", "range-middle");
+            });
+            if (!startLine && !endLine) return;
+            if (startLine && !endLine) {
+                const i = Number(startLine.dataset.index);
+                lines[i].classList.add("range-edge");
+                return;
+            }
+            if (!startLine && endLine) {
+                const i = Number(endLine.dataset.index);
+                lines[i].classList.add("range-edge");
+                return;
+            }
+            const start = Number(startLine.dataset.index);
+            const end = Number(endLine.dataset.index);
+            const [from, to] = start < end ? [start, end] : [end, start];
+
+            lines.forEach((line, i) => {
+                if (i === from || i === to) {
+                    line.classList.add("range-edge");
+                } else if (i > from && i < to) {
+                    line.classList.add("range-middle");
+                }
+            });
+        }
+
+        const rangeBar = document.getElementById("rangeBar");
+
+        function updateRangeBar() {
+            const lines = document.querySelectorAll(".log-line");
+            const total = lines.length;
+            if (!startLine || !endLine || total === 0) {
+                rangeBar.style.display = "none";
+                return;
+            }
+
+            const barHeight = scrollBar.clientHeight;
+            const start = Number(startLine.dataset.index);
+            const end = Number(endLine.dataset.index);
+            const [from, to] = start < end ? [start, end] : [end, start];
+
+            const top = (from / total) * barHeight;
+            const height = ((to - from + 1) / total) * barHeight;
+
+            rangeBar.style.top = `${top}px`;
+            rangeBar.style.height = `${height}px`;
+            rangeBar.style.display = "block";
+        }
+
+        const logArea = document.getElementById("logArea");
+        let dragCounter = 0;
+
+        logArea.addEventListener("dragenter", e => {
+            e.preventDefault();
+            dragCounter++;
+            logArea.classList.add("drag-over");
+        });
+
+        logArea.addEventListener("dragover", e => {
+            e.preventDefault();
+        });
+
+        logArea.addEventListener("dragleave", e => {
+            dragCounter--;
+            if (dragCounter === 0) {
+                logArea.classList.remove("drag-over");
+            }
+        });
+
+        logArea.addEventListener("drop", e => {
+            e.preventDefault();
+            dragCounter = 0;
+            logArea.classList.remove("drag-over");
+
+            const file = e.dataTransfer.files[0];
+            if (!file) return;
+
+            if (!file.name.endsWith(".html") && !file.name.endsWith(".htm")) {
+                alert("HTMLファイルをドロップしてください");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => loadLog(reader.result);
+            reader.readAsText(file);
         });
     </script>
 
